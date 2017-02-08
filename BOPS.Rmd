@@ -1,0 +1,791 @@
+---
+title: "BOPS Project"
+author: "Ivory Poo"
+date: "11/3/2016"
+output: word_document
+---
+##Impact of BOPS on Consumer Return Behavior
+## Set the directory
+```{r}
+setwd("~/Desktop/BOPS Project")
+df_m4 = read.csv("df_m4.csv")
+```
+##Data Aggregatioin
+To investigate impact of BOPS on consumer return behavior. We will use transaction level data.
+The reason why we do not aggregate the data to consumer level is that, return is a behavior that we can observe in the level of single transaction as compared to purchases.
+
+##Multicollinearity Test: Positive result
+```{r}
+#install.packages("VIF")
+library(VIF)
+#install.packages("usdm")
+library(usdm) 
+df=data.frame(df_m4$bops,df_m4$kid,df_m4$price,df_m4$age_band, df_m4$est_income_code, df_m4$white, df_m4$male, df_m4$JAN, df_m4$FEB, df_m4$MAR, df_m4$APR, df_m4$MAY, df_m4$JUN, df_m4$JUL, df_m4$AUG, df_m4$SEP, df_m4$OCT, df_m4$NOV, df_m4$store5998, df_m4$store6, df_m4$y_2011,df_m4$y_2013) 
+cor(df)  #all the correlations are less than 0.8
+vif(df) #Calculates VIF scores, all are between range (1, 1.66) and they are less than 3, so it is ok.
+```
+##Functions for estimate a treatment-effect model.
+```{r}
+#install.packages("sampleSelection")
+library(sampleSelection)
+
+CB <- function(x) {
+   ifelse(x > -500,
+          -exp(dnorm(x, log = TRUE)
+                - pnorm(x, log.p = TRUE))*x
+           -exp(2*(dnorm(x, log = TRUE) - pnorm(x, log.p = TRUE))),
+          -1)
+}
+
+lambda <- function(x) {
+   as.vector(ifelse(x > -30, dnorm(x)/pnorm(x), -x))
+                           # can we prove it?
+}
+
+tobitTfit <- function(YS, XS, YO, XO, start,
+                      weights=NULL, print.level=0,
+                      maxMethod="Newton-Raphson",
+                      index=NULL,
+                      binaryOutcome=FALSE,
+                      ...) {
+### Tobit treatment models:
+### The latent variable is:
+### YS* = XS'g + u
+### The observables are:
+###      / 1  if  YS* > 0
+### YS = \ 0  if  YS* <= 0
+### YO = X'b + YS bT + v
+### u, v are correlated
+### 
+### Arguments:
+### 
+###  YS        binary or logical vector, 0 (FALSE) and 1 (TRUE)
+###  XS              -"-                selection, should include
+###              exclusion restriction
+###  YO        numeric vector, outcomes
+###  XO        explanatory variables for outcomes, should include YS
+###  index     individual parameter indices in the parameter vector.
+###            Should always be supplied but can generate here for
+###            testing purposes
+###  ...       additional parameters for maxLik
+###
+   loglik <- function( beta) {
+      betaS <- beta[iBetaS]
+      betaO <- beta[iBetaO]
+      sigma <- beta[iSigma]
+      if(sigma <= 0) return(NA)
+      rho <- beta[iRho]
+      if( ( rho < -1) || ( rho > 1)) return(NA)
+                           # check the range
+      XS0.betaS <- XS0%*%betaS
+                           # denoted by 'z' in the vignette
+      XS1.betaS <- XS1%*%betaS
+      v0 <- YO0 - XO0%*%betaO
+      v1 <- YO1 - XO1%*%betaO
+      sqrt1r2 <- sqrt( 1 - rho^2)
+      B0 <- (-XS0.betaS - rho/sigma*v0)/sqrt1r2
+      B1 <- (XS1.betaS + rho/sigma*v1)/sqrt1r2
+      loglik <- numeric(nObs)
+      loglik[i0] <- -1/2*log( 2*pi) - log( sigma) -
+          0.5*( v0/sigma)^2 + pnorm( B0, log.p=TRUE) 
+      loglik[i1] <- -1/2*log( 2*pi) -log( sigma) -
+          0.5*( v1/sigma)^2 + pnorm( B1, log.p=TRUE) 
+      #sum(loglik)
+      loglik
+   }
+   gradlik <- function(beta) {
+      ## gradient is nObs x nParam matrix
+      betaS <- beta[iBetaS]
+      betaO <- beta[iBetaO]
+      sigma <- beta[iSigma]
+      if(sigma <= 0) return(NA)
+      rho <- beta[iRho]
+      if( ( rho < -1) || ( rho > 1)) return(NA)
+                           # check the range
+      XS0.betaS <- XS0%*%betaS
+                           # denoted by 'z' in the vignette
+      XS1.betaS <- XS1%*%betaS
+      v0 <- drop(YO0 - XO0%*%betaO)
+      v1 <- drop(YO1 - XO1%*%betaO)
+      sqrt1r2 <- sqrt( 1 - rho^2)
+      B0 <- (-XS0.betaS - rho/sigma*v0)/sqrt1r2
+      B1 <- (XS1.betaS + rho/sigma*v1)/sqrt1r2
+      lambda0 <- drop(lambda(B0))
+      lambda1 <- drop(lambda(B1))
+      ## now the gradient itself
+      gradient <- matrix(0, nObs, nParam)
+      gradient[i0, iBetaS] <- -lambda0*XS0/sqrt1r2
+      gradient[i1, iBetaS] <- lambda1*XS1/sqrt1r2
+      gradient[i0,iBetaO] <- (lambda0*rho/sigma/sqrt1r2
+                              + v0/sigma^2)*XO0
+      gradient[i1,iBetaO] <- (-lambda1*rho/sigma/sqrt1r2
+                              + v1/sigma^2)*XO1
+      gradient[i0,iSigma] <- (-1/sigma + v0^2/sigma^3
+                              + lambda0*rho/sigma^2*v0/sqrt1r2)
+      gradient[i1,iSigma] <- (-1/sigma + v1^2/sigma^3
+                              - lambda1*rho/sigma^2*v1/sqrt1r2)
+      gradient[i0,iRho] <- -lambda0*(v0/sigma + rho*XS0.betaS)/
+          sqrt1r2^3
+      gradient[i1,iRho] <- lambda1*(v1/sigma + rho*XS1.betaS)/
+          sqrt1r2^3
+#      colSums(gradient)
+      gradient
+   }
+   hesslik <- function(beta) {
+                           # This is a hack in order to avoid numeric problems
+      ## gradient is nObs x nParam matrix
+      betaS <- beta[iBetaS]
+      betaO <- beta[iBetaO]
+      sigma <- beta[iSigma]
+      if(sigma <= 0) return(NA)
+      rho <- beta[iRho]
+      if( ( rho < -1) || ( rho > 1)) return(NA)
+                           # check the range
+      XS0.betaS <- XS0%*%betaS
+                           # denoted by 'z' in the vignette
+      XS1.betaS <- XS1%*%betaS
+      v0 <- drop(YO0 - XO0%*%betaO)
+      v1 <- drop(YO1 - XO1%*%betaO)
+      sqrt1r2 <- sqrt( 1 - rho^2)
+      B0 <- (-XS0.betaS - rho/sigma*v0)/sqrt1r2
+      B1 <- (XS1.betaS + rho/sigma*v1)/sqrt1r2
+      lambda0 <- drop(lambda(B0))
+      lambda1 <- drop(lambda(B1))
+      CB0 <- drop(CB(B0))
+      CB1 <- drop(CB(B1))
+      hess <- array(0, c( nParam, nParam))
+      hess[,] <- NA
+      hess[iBetaS,iBetaS] <-
+         t( XS0) %*% ( XS0 * CB0)/sqrt1r2^2 +
+             t( XS1) %*% ( XS1 * CB1)/sqrt1r2^2
+      hess[iBetaS,iBetaO]  <-
+         - t( XS0) %*% ( XO0 * CB0)*rho/sqrt1r2^2/sigma -
+             t( XS1) %*% ( XO1 * CB1)*rho/sqrt1r2^2/sigma
+      hess[iBetaO,iBetaS] <- t(hess[iBetaS,iBetaO])
+      hess[iBetaS,iSigma] <-
+         -rho/sigma^2/sqrt1r2^2*t( XS0) %*% ( CB0*v0) -
+             rho/sigma^2/sqrt1r2^2*t( XS1) %*% ( CB1*v1)
+      hess[iSigma,iBetaS] <- t(hess[iBetaS,iSigma])
+      hess[iBetaS,iRho] <- 
+         (t(XS0) %*% (CB0*(v0/sigma + rho*XS0.betaS)/sqrt1r2^4
+                      - lambda0*rho/sqrt1r2^3) 
+          +t(XS1) %*% (CB1*(v1/sigma + rho*XS1.betaS)/sqrt1r2^4
+                       + lambda1*rho/sqrt1r2^3)
+          )
+      hess[iRho,iBetaS] <- t(hess[iBetaS,iRho])
+      ##
+      hess[iBetaO,iBetaO] <- 
+         t( XO0) %*% (XO0*((rho/sqrt1r2)^2*CB0 - 1))/sigma^2 +
+             t( XO1) %*% (XO1*( (rho/sqrt1r2)^2 * CB1 - 1))/sigma^2
+      hess[iBetaO,iSigma] <-
+         (t( XO0) %*% (CB0*rho^2/sigma^3*v0/sqrt1r2^2
+                       - rho/sigma^2*lambda0/sqrt1r2 
+                       - 2*v0/sigma^3) 
+          + t( XO1) %*% (CB1*rho^2/sigma^3*v1/sqrt1r2^2 
+                         + rho/sigma^2*lambda1/sqrt1r2
+                         - 2*v1/sigma^3)
+          )
+      hess[iSigma,iBetaO] <- t(hess[iBetaO,iSigma])
+      hess[iBetaO,iRho] <-
+         (t(XO0) %*% (-CB0*(v0/sigma + rho*XS0.betaS)/sqrt1r2^4*rho
+                      + lambda0/sqrt1r2^3)/sigma
+          + t(XO1) %*% (-CB1*(v1/sigma + rho*XS1.betaS)/sqrt1r2^4*rho
+                        - lambda1/sqrt1r2^3)/sigma
+          )
+      hess[iRho,iBetaO] <- t(hess[iBetaO,iRho])
+      ##
+      hess[iSigma,iSigma] <-
+         (sum(1/sigma^2
+             -3*v0*v0/sigma^4
+             + v0*v0/sigma^4*rho^2/sqrt1r2^2*CB0
+             -2*lambda0*v0/sqrt1r2*rho/sigma^3)
+          + sum(1/sigma^2
+                -3*v1*v1/sigma^4
+                +rho^2/sigma^4*v1*v1/sqrt1r2^2*CB1
+                +2*lambda1*v1/sqrt1r2*rho/sigma^3)
+          )
+      hess[iSigma,iRho] <- 
+         (sum((-CB0*rho*(v0/sigma + rho*XS0.betaS)/sqrt1r2 + lambda0)
+              *v0/sigma^2)/sqrt1r2^3
+          - sum(
+              (CB1*rho*(v1/sigma + rho*XS1.betaS)/sqrt1r2 + lambda1)
+              *v1/sigma^2)/sqrt1r2^3
+          )
+      hess[iRho,iSigma] <- t(hess[iSigma,iRho])
+      hess[iRho,iRho] <-
+         (sum(CB0*( (v0/sigma + rho*XS0.betaS)/sqrt1r2^3)^2
+              -lambda0*(XS0.betaS*(1 + 2*rho^2) + 3*rho*v0/sigma)/
+                  sqrt1r2^5
+              )
+          + sum(CB1*( (v1/sigma + rho*XS1.betaS)/sqrt1r2^3)^2
+                +lambda1*( XS1.betaS*( 1 + 2*rho^2) + 3*rho*v1/sigma) /
+              sqrt1r2^5
+                )
+          )
+      ## l.s2x3 is zero
+      hess
+   }
+   ## ---------------
+   NXS <- ncol( XS)
+   if(is.null(colnames(XS)))
+      colnames(XS) <- rep("XS", NXS)
+   NXO <- ncol( XO)
+   if(is.null(colnames(XO)))
+      colnames(XO) <- rep("XO", NXO)
+   nObs <- length( YS)
+   i0 <- YS==0
+   i1 <- YS==1
+   NO1 <- length( YS[i0])
+   NO2 <- length( YS[i1])
+   if(!is.null(weights)) {
+      warning("Argument 'weight' is ignored by tobitTfit")
+   }
+   ## indices in for the parameter vector
+   if(is.null(index)) {
+      iBetaS <- 1:NXS
+      iBetaO <- max(iBetaS) + seq(length=NXO)
+      if(!binaryOutcome) {
+         iSigma <- max(iBetaO) + 1
+         iRho <- max(iSigma) + 1
+      }
+      else
+         iRho <- max(iBetaO) + 1
+      nParam <- iRho
+   }
+   else {
+      iBetaS <- index$betaS
+      iBetaO <- index$betaO
+      iSigma <- index$errTerms["sigma"]
+      iRho <- index$errTerms["rho"]
+      nParam <- index$nParam
+   }
+   ## split the data by selection
+   XS0 <- XS[i0,,drop=FALSE]
+   XS1 <- XS[i1,,drop=FALSE]
+   YO0 <- YO[i0]
+   YO1 <- YO[i1]
+   XO0 <- XO[i0,,drop=FALSE]
+   XO1 <- XO[i1,,drop=FALSE]
+   ##
+   if(print.level > 0) {
+      cat( "Non-participants: ", NO1,
+          "; participants: ", NO2, "\n", sep="")
+      cat( "Initial values:\n")
+      cat("selection equation betaS:\n")
+      print(start[iBetaS])
+      cat("Outcome equation betaO\n")
+      print(start[iBetaO])
+      cat("Variance sigma\n")
+      print(start[iSigma])
+      cat("Correlation rho\n")
+      print(start[iRho])
+   }
+   result <- maxLik(loglik,
+                    grad=gradlik,
+                    hess=hesslik,
+                    start=start,
+                    print.level=print.level,
+                    method=maxMethod,
+                    ...)
+   ## compareDerivatives(#loglik,
+   ##     gradlik,
+   ##     hesslik,
+   ##                    t0=start)
+   result$tobitType <- "treatment"
+   result$method <- "ml"
+   class( result ) <- c( "selection", class( result ) )
+   return( result )
+}
+
+treatReg <- function(selection, outcome,
+                      data=sys.frame(sys.parent()),
+                      weights = NULL,
+                      subset,
+                      method="ml",
+                      start=NULL,
+                      ys=FALSE, xs=FALSE,
+                      yo=FALSE, xo=FALSE,
+                      mfs=FALSE, mfo=FALSE,
+                      print.level=0,
+                      ...) {
+   ## Heckman-style treatment effect models
+   ## selection:   formula
+   ##              LHS: must be convertable to two-level factor (e.g. 0-1, 1-2, "A"-"B")
+   ##              RHS: ordinary formula as in lm()
+   ## outcome:     formula
+   ##              should include selection outcome
+   ## ys, xs, yo, xo, mfs, mfo: whether to return the response, model matrix or
+   ##              the model frame of outcome and selection equation(s)
+   ## First the consistency checks
+   ## ...          additional arguments for tobit2fit and tobit5fit
+   type <- 0
+   if(!inherits( selection, "formula" )) {
+      stop( "argument 'selection' must be a formula" )
+   }
+   if( length( selection ) != 3 ) {
+      stop( "argument 'selection' must be a 2-sided formula" )
+   }
+   if(inherits(outcome, "formula")) {
+      if( length( outcome ) != 3 ) {
+         stop( "argument 'outcome' must be a 2-sided formula" )
+      }
+   }
+   else
+       stop("argument 'outcome' must be a formula" )
+   if(!missing(data)) {
+      if(!inherits(data, "environment") & !inherits(data, "data.frame") & !inherits(data, "list")) {
+         stop("'data' must be either environment, data.frame, or list (currently a ", class(data), ")")
+      }
+   }
+   ##
+   if(print.level > 0)
+       cat("Treatment effect model", type, "model\n")
+   probitEndogenous <- model.frame( selection, data = data)[ , 1 ]
+   probitLevels <- levels( as.factor( probitEndogenous ) )
+   if( length( probitLevels ) != 2 ) {
+      stop( "the left hand side of 'selection' has to contain",
+         " exactly two levels (e.g. FALSE and TRUE)" )
+   }
+   if( !is.null( weights )) {
+      warning( "argument 'weights' is ignored" )
+      weights <- NULL
+   }
+   ## now check whether two-step method was requested
+   cl <- match.call()
+   if(method == "2step") {
+      twoStep <- heckitTfit(selection, outcome, data=data,
+#                            weights = weights,
+                            print.level = print.level, ... )
+      twoStep$call <- cl
+      class(twoStep) <- c("selection", class(twoStep))
+      return(twoStep)
+   }
+   ## Now extract model frames etc
+   ## YS (selection equation)
+   mf <- match.call(expand.dots = FALSE)
+   m <- match(c("selection", "data", "subset"), names(mf), 0)
+   mfS <- mf[c(1, m)]
+   mfS$drop.unused.levels <- TRUE
+   mfS$na.action <- na.pass
+   mfS[[1]] <- as.name("model.frame")
+   names(mfS)[2] <- "formula"
+                                        # model.frame requires the parameter to
+                                        # be 'formula'
+   mfS <- eval(mfS, parent.frame())
+   mtS <- attr(mfS, "terms")
+   XS <- model.matrix(mtS, mfS)
+   YS <- model.response(mfS)
+   YSLevels <- levels( as.factor( YS ) )
+   if( length( YSLevels ) != 2 ) {
+      stop( "the left hand side of the 'selection' formula has to contain",
+         " exactly two levels (e.g. FALSE and TRUE)" )
+   }
+   YS <- as.integer(YS == YSLevels[ 2 ])
+                                        # selection will be kept as integer internally
+   ## check for NA-s.  Because we have to find NA-s in several frames, we cannot use the standard na.
+   ## functions here.  Find bad rows and remove them later.
+   ## We check XS and YS separately, because mfS may be a data frame with complex structure (e.g.
+   ## including matrices)
+   badRow <- !complete.cases(YS, XS)
+   badRow <- badRow | is.infinite(YS)
+   badRow <- badRow | apply(XS, 1, function(v) any(is.infinite(v)))
+   ## YO (outcome equation)
+   ## Here we should include a possibility for the user to
+   ## specify the model.  Currently just a guess.
+   binaryOutcome <- FALSE
+   oArg <- match("outcome", names(mf), 0)
+                           # find the outcome argument
+   m <- match(c("outcome", "data", "subset",
+                "offset"), names(mf), 0)
+   ## replace the outcome list by the first equation and evaluate it
+   mfO <- mf[c(1, m)]
+   mfO$drop.unused.levels <- TRUE
+   mfO$na.action <- na.pass
+   mfO[[1]] <- as.name("model.frame")
+                           # eval it as model frame
+   names(mfO)[2] <- "formula"
+   mfO <- eval(mfO, parent.frame())
+                           # Note: if unobserved variables are
+                           # marked as NA, eval returns a
+                           # subframe of visible variables only.
+                           # We have to check it later
+   mtO <- attr(mfO, "terms")
+   XO <- model.matrix(mtO, mfO)
+   YO <- model.response(mfO)
+   if(is.logical(YO) |
+      (is.factor(YO) & length(levels(YO)) == 2)) {
+      binaryOutcome <- TRUE
+   }
+   ## Now figure out if selection outcome is in fact used as
+   ## explanatory variable for the outcome
+   selectionVariable <- as.character(selection[[2]])
+                           # name of the selection outcome
+   ##
+   badRow <- badRow | !complete.cases(YO, XO)
+   badRow <- badRow | is.infinite(YO)
+   badRow <- badRow | apply(XO, 1, function(v) any(is.infinite(v)))
+                           # outcome cases that contain NA, Inf, NaN
+   if( !is.null( weights ) ) {
+      if( length( weights ) != length( badRow ) ) {
+         stop( "number of weights (", length( weights ), ") is not equal",
+              " to the number of observations (", length( badRow ), ")" )
+      }
+      badRow <- badRow | is.na( weights )
+      badRow <- badRow | is.infinite( weights )
+   }   
+   if(print.level > 0) {
+      cat(sum(badRow), "invalid observations\n")
+   }
+   if( method == "model.frame" ) {
+      mf <- mfS
+      mf <- cbind( mf, mfO[ , ! names( mfO ) %in% names( mf ), drop = FALSE ] )
+      return( mf[ !badRow, ] )
+   }
+   XS <- XS[!badRow,, drop=FALSE]
+   YS <- YS[!badRow]
+   XO <- XO[!badRow,, drop=FALSE]
+   YO <- YO[!badRow]
+   weightsNoNA <- weights[ !badRow ]
+   NXS <- ncol(XS)
+   NXO <- ncol(XO)
+   ## parameter indices in the parameter vector
+   iBetaS <- seq(length=ncol(XS))
+   iBetaO <- max(iBetaS) + seq(length=NXO)
+   if(!binaryOutcome) {
+      iSigma <- max(iBetaO) + 1
+      iRho <- max(iSigma) + 1
+   }
+   else
+      iRho <- max(iBetaO) + 1
+   nParam <- iRho
+   if(binaryOutcome) {
+      iErrTerms <- c(rho=iRho)
+   }
+   else {
+      iErrTerms <- c(sigma=iSigma, rho=iRho )
+   }
+   index <- list(betaS=iBetaS,
+                 betaO=iBetaO,
+                 errTerms=iErrTerms,
+                 outcome = iBetaO,
+                 nParam=iRho)
+   ##
+   twoStep <- NULL
+   if(is.null(start)) {
+                           # start values by Heckman 2-step method
+      start <- numeric(nParam)
+      twoStep <- heckitTfit(selection, outcome, data=data,
+                            print.level = print.level,
+#                            weights = weights
+                            )
+      coefs <- coef(twoStep, part="full")
+      start[iBetaS] <- coefs[twoStep$param$index$betaS]
+      if(!binaryOutcome) {
+         start[iBetaO] <- coefs[twoStep$param$index$betaO]
+         start[iSigma] <- coefs[twoStep$param$index$sigma]
+      }
+      else
+         start[iBetaO] <- coefs[twoStep$param$index$betaO]/coefs[twoStep$param$index$sigma]
+      start[iRho] <- coefs[twoStep$param$index$rho]
+      if(start[iRho] > 0.99)
+         start[iRho] <- 0.99
+      else if(start[iRho] < -0.99)
+         start[iRho] <- -0.99
+   }
+   if(is.null(names(start))) {
+      if(!binaryOutcome) {
+         names(start) <- c(colnames(XS), colnames(XO), "sigma",
+                           "rho")
+      }
+      else
+         names(start) <- c(colnames(XS), colnames(XO), 
+                           "rho")
+   }                                        # add names to start values if not present
+   if(!binaryOutcome) {
+      estimation <- tobitTfit(YS, XS, YO, XO, start,
+#                              weights = weightsNoNA,
+                              print.level=print.level,
+                              index=index,
+                              binaryOutcome=binaryOutcome,
+                              ...)
+   }
+   else {
+      ## estimation <- tobitTBfit(YS, XS, YO, XO, start, weights = weightsNoNA,
+      ##                          print.level=print.level, ...)
+      ## iErrTerms <- c(rho=iRho)
+      stop("Binary outcome models are not implemented")
+   }
+   param <- list(index=index,
+                 NXS=ncol(XS), NXO=ncol(XO),
+                 N0=sum(YS==0), N1=sum(YS==1),
+                 nObs=length(YS), nParam=length(start),
+                 df=length(YS) - length(start),
+                 levels=YSLevels,
+                           # levels[1]: selection 1; levels[2]:
+                           # selection 2
+                 selectionVariableName=selectionVariable
+                           # which explanatory variable is selection outcome
+                 )
+   result <- c(estimation,
+               twoStep=list(twoStep),
+               start=list(start),
+               param=list(param),
+               call=cl,
+               termsS=mtS,
+               termsO=mtO,
+               ys=switch(as.character(ys), "TRUE"=list(YS), "FALSE"=NULL),
+               xs=switch(as.character(xs), "TRUE"=list(XS), "FALSE"=NULL),
+               yo=switch(as.character(yo), "TRUE"=list(YO), "FALSE"=NULL),
+               xo=switch(as.character(xo), "TRUE"=list(XO), "FALSE"=NULL),
+               mfs=switch(as.character(mfs), "TRUE"=list(mfS[!badRow,]), "FALSE"=NULL),
+               mfo=switch(as.character(mfs),
+               "TRUE"=list(mfO[!badRow,]), "FALSE"=NULL)
+               )
+   result$binaryOutcome <- binaryOutcome
+   class( result ) <- class( estimation ) 
+   return(result)
+}
+```
+
+##First Attempt: Treatment-Effect model
+In this return model, BOPS is a self-select decision from the customer, therefore, there is a selection bias, the suspect that BOPS is endogenous, we therefore use this treatment-effect model to address this problem. However, the result from this model: insignificant rho of -0.00137, we can conclude that, the endogeneity problem is negligible in this case. 
+```{r}
+model1<-treatReg(bops~kid+price+age_band + est_income_code + white + male + factor(month_index2) + factor(store_number)+factor(year), return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2) + factor(store_number)+factor(fiscalyr), data=df_m4, method="ML")
+
+summary(model1) 
+
+df_m4$predict_return=predict(model1, newdata=df_m4,type = "response")
+ttest=t.test(df_m4$predict_return~df_m4$bops)
+ATE=ttest$estimate[2]-ttest$estimate[1]
+names(ATE)<-"ATE"
+ATE ##result from stata ATE=0.011, my ATE=0.0203
+```
+##Testing the instruments
+```{r}
+probit_treatment<- glm(bops~kid+price+age_band + est_income_code + white + male + factor(month_index2) + factor(store_number)+factor(year),data=df_m4,family=binomial(link="probit")) 
+
+df_m4$predict_bops=predict(probit_treatment, newdata=df_m4,type = "response")
+
+df_m4$predicted_bops=ifelse(df_m4$predict_bops >= 0.5,1,0)
+mean(df_m4$predicted_bops != df_m4$bops,na.rm=TRUE)
+
+misClasificError <- mean(df_m4$predicted_bops != df_m4$bops,na.rm=TRUE) # count number of wrong classifications
+print(paste('Accuracy',1-misClasificError)) #accurarcy is 76.91%
+```
+
+##Final model: Simple Probit model with Robust SE
+Interpretation of the variable of interest, BOPS: Assume that we sell 1000 units. Since the return rate when BOPS=0 is 9.6%, customers will returns 96 units. If these customers use BOPS, the return rate will be 0.096 + 0.02=0.116. Hence, we would get 116 returned products under BOPS strategy. This corresponds to a 20.8% (=(116-96)/96) increase  to total number of returns.
+```{r}
+probit1<-glm(return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2) + factor(store_number) + factor(fiscalyr), data=df_m4,family=binomial(link="probit"))
+#install.packages("mfx")
+dwtest(probit1)
+library(mfx)
+probitmfx(formula=return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2) + factor(store_number) + factor(fiscalyr), data=df_m4,robust=TRUE)
+
+aggregate(df_m4$return~df_m4$bops, FUN=mean)
+
+```
+##Basically, what I need to explain is I tried to address the endo model and rho is insig, so I can conclude that the treatment model doesn't has been impact on the model. So simple probit regession will do the work. Ratio of pick up in store in 2012 and 2013. If I run in on only 2012 data, I will see similar result like Selina, no impact on return. 2013 is included to capture longer term effect of bops. Look at 5998 seperately, 2 and 6 are in the USA. Online sale represent 7% of total sale, Bops trigger brick and mortal sale. This stragety trigger sale on phsiacally sales. We do not have additional data, to show the positive side of this implementation.
+
+#Short term & long term, only run of 5998 seperately versus other store. For other two there is no sign, for 5998 there is high increase of return. DIFFERENCE BETWEEN Canada(CONTRIBUTE 10% OF TOTAL SALES) and USA.
+
+##Heteroskedasticity test on simple probit model
+```{r}
+#install.packages("lmtest")
+library(lmtest)
+probit1<-glm(return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2) + factor(store_number)+factor(fiscalyr), data=df_m4, family=binomial(link="probit"))
+gqtest(probit1) # Goldfeld-Quandt test
+bptest(probit1)# Breusch-Pagan test
+#it shows heteroskedasticity, but using normal se is okay. Obtaining robust se for treatReg is beyond this course.
+```
+
+##serial correlation test:
+In DW test, the result shows a positive serial correlation but it is in the acceptable range. And in Lagrange Multiplier test also indicates a serial correlation. To fix this, we will need to obtain Newey-West standard error.
+```{r}
+#install.packages("DataCombine")
+library(DataCombine)
+dwtest(probit1) # Durbin-Watson test - DW=1.79 < 2, and significant, indicating a positive serial correlation, but it is in a acceptable range
+library(FinTS)
+ArchTest(df_m4$return, lag=1) #There is serial correlation
+library(nlme)
+coeftest(probit1,vcov.=NeweyWest)
+```
+
+
+
+##Simple Probit model with robust se
+```{r}
+df_2012<-subset(df_m4,df_m4$fiscalyr==12)
+df_2012_26<-subset(df_2012,df_2012$store2==1|df_2012$store6==1)
+df_2013<-subset(df_m4,df_m4$fiscalyr==13)
+df_2013_26<-subset(df_2013,df_2012$store2==1|df_2013$store6==1)
+df_store5998<-subset(df_m4,df_m4$store5998==1)
+df_store26<-subset(df_m4,df_m4$store2==1|df_m4$store6==1)
+##Year 2012
+probit_2012<-glm(return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2) + factor(store_number) + factor(year), data=df_2012,family=binomial(link="probit"))
+
+probitmfx(formula=return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2) + factor(store_number) + factor(year), data=df_2012,robust=TRUE)
+
+##Year 2013
+probit_2013<-glm(return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2) + factor(store_number) + factor(year), data=df_2013,family=binomial(link="probit"))
+
+probitmfx(formula=return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2) + factor(store_number) + factor(year), data=df_2013,robust=TRUE)
+
+##df_store5998
+probit_store5998<-glm(return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2)+ factor(year), data=df_store5998,family=binomial(link="probit"))
+
+probitmfx(formula=return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2) + factor(year), data=df_store5998,robust=TRUE)
+
+##df_store 2 & 6
+probit_store26<-glm(return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2) + factor(year), data=df_store26,family=binomial(link="probit"))
+
+probitmfx(formula=return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2)  + factor(year), data=df_store26,robust=TRUE)
+
+##df_store 2 & 6, 2012
+probit_store2012_26<-glm(return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2) + factor(year), data=df_2012_26,family=binomial(link="probit"))
+
+probitmfx(formula=return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2)  + factor(year), data=df_2012_26,robust=TRUE)
+
+##df_store 2 & 6, 2013
+probit_store2013_26<-glm(return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2) + factor(year), data=df_2013_26,family=binomial(link="probit"))
+
+probitmfx(formula=return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2)  + factor(year), data=df_2013_26,robust=TRUE)
+```
+
+
+##Create fiscal year variables and month index
+```{r}
+df_m4$month_index2=df_m4$month_index%%12
+df_m4$y_2011 <- ifelse(df_m4$year == "2011", 1, 0)
+df_m4$y_2012 <- ifelse(df_m4$year == "2012", 1, 0)
+df_m4$y_2013 <- ifelse(df_m4$year == "2013", 1, 0)
+df_m4$fiscalyr <- ifelse(13<= df_m4$month_index & df_m4$month_index <=24, 11, ifelse(25<= df_m4$month_index & df_m4$month_index <= 36, 12, 13))
+write.csv(df_m4, "df_m4.csv")
+
+```
+
+
+
+
+<!-- ## Description of the data -->
+<!-- ```{r} -->
+<!-- data12 = read.csv("BOPS-FY12.csv") -->
+<!-- data13 = read.csv("BOPS-FY13.csv") -->
+<!-- data_trans<-read.table("transaction.txt", header= TRUE, sep= ",") -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- allbops=rbind(data12,data13) -->
+<!-- data_trans$bops= ifelse(data_trans$transaction_id%in% allbops$transaction_id, 1,0) -->
+<!-- #summary(data_trans) -->
+
+<!-- ##Subseting the data to only BOPS implementaion period -->
+<!-- data_df1=subset(data_trans, (month_index>=25) & (store_number==2|store_number==6)) -->
+<!-- data_df2=subset(data_trans, (month_index>=37) & (store_number==5998)) -->
+<!-- df_m4=rbind(data_df1,data_df2) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- ##rename the net_purchase_amount as price -->
+<!-- colnames(df_m4)[colnames(df_m4)=="net_purchase_amount"] <- "price" -->
+<!-- ``` -->
+<!-- Creating Dummies -->
+<!-- ```{r} -->
+<!-- attach(df_m4) -->
+<!-- #Create dummy for return -->
+<!-- df_m4$return=ifelse(is.na(df_m4$time_to_return),0,1) -->
+
+<!-- #create dummy variables for ethnic code -->
+<!-- df_m4$white <- ifelse(df_m4$ethnic_code == "N"| df_m4$ethnic_code == "Z", 1, 0) -->
+
+<!-- #create dummy variables for store number -->
+<!-- df_m4$store2 <- ifelse(store_number == "2", 1, 0) -->
+<!-- df_m4$store6 <- ifelse(store_number == "6", 1, 0) -->
+<!-- df_m4$store5998 <- ifelse(store_number == "5998", 1, 0) -->
+
+<!-- #create dummy variables for homeowner -->
+<!-- df_m4$homeowner <- ifelse(homeowner_code == "O",1,ifelse(homeowner_code == "R",0,NA)) -->
+
+<!-- #create dummy variables for male -->
+<!-- df_m4$male <- ifelse(gender == "M",1,ifelse(gender == "F",0,NA)) -->
+
+<!-- #create child variables for male -->
+<!-- df_m4$kid <- ifelse(child == "Y",1,ifelse(child == "N",0,NA)) -->
+
+<!-- #create dummy variables for product catagory -->
+<!-- df_m4$bridal <- ifelse(summary == "1", 1, 0) -->
+<!-- df_m4$goldwedbands <- ifelse(summary == "2", 1, 0) -->
+<!-- df_m4$solitaires <- ifelse(summary == "3", 1, 0) -->
+<!-- df_m4$dfashion <- ifelse(summary == "4", 1, 0) -->
+<!-- df_m4$semiprecious <- ifelse(summary == "5", 1, 0) -->
+<!-- df_m4$mens <- ifelse(summary == "6", 1, 0) -->
+<!-- df_m4$goldearrings <- ifelse(summary == "7", 1, 0) -->
+<!-- df_m4$specialevent <- ifelse(summary == "8", 1, 0) -->
+<!-- df_m4$beads <- ifelse(summary == "9", 1, 0) -->
+<!-- df_m4$piercings <- ifelse(summary == "10", 1, 0) -->
+<!-- df_m4$dsoljewelry <- ifelse(summary == "11", 1, 0) -->
+<!-- df_m4$gold <- ifelse(summary == "12", 1, 0) -->
+<!-- df_m4$watch <- ifelse(summary == "13", 1, 0) -->
+<!-- df_m4$preowned <- ifelse(summary == "14", 1, 0) -->
+<!-- df_m4$specialized <- ifelse(summary == "15", 1, 0) -->
+<!-- df_m4$events <- ifelse(summary == "17", 1, 0) -->
+<!-- df_m4$diawedband <- ifelse(summary == "20", 1, 0) -->
+<!-- df_m4$silver <- ifelse(summary == "21", 1, 0) -->
+
+<!-- #create dummy variables for month -->
+<!-- df_m4$JAN <- ifelse(month == "JAN", 1, 0) -->
+<!-- df_m4$FEB <- ifelse(month == "FEB", 1, 0) -->
+<!-- df_m4$MAR <- ifelse(month == "MAR", 1, 0) -->
+<!-- df_m4$APR <- ifelse(month == "APR", 1, 0) -->
+<!-- df_m4$MAY <- ifelse(month == "MAY", 1, 0) -->
+<!-- df_m4$JUN <- ifelse(month == "JUN", 1, 0) -->
+<!-- df_m4$JUL <- ifelse(month == "JUL", 1, 0) -->
+<!-- df_m4$AUG <- ifelse(month == "AUG", 1, 0) -->
+<!-- df_m4$SEP <- ifelse(month == "SEP", 1, 0) -->
+<!-- df_m4$OCT <- ifelse(month == "OCT", 1, 0) -->
+<!-- df_m4$NOV <- ifelse(month == "NOV", 1, 0) -->
+<!-- df_m4$DEC <- ifelse(month == "DEC", 1, 0) -->
+<!-- ``` -->
+<!-- Output dataset -->
+<!-- ```{r} -->
+<!-- write.csv(df_m4, "model4.csv") -->
+<!-- ``` -->
+
+
+<!-- #stepwise  -->
+<!-- ```{r} -->
+<!-- install.packages("MASS") -->
+<!-- library("MASS") -->
+<!-- model<-glm(return~bops+price+age_band+est_income_code+male+homeowner+kid+store2+store5998+JAN+FEB+MAR+APR+MAY+JUN+JUL+AUG+SEP+OCT+NOV+bridal+goldwedbands+solitaires+dfashion+semiprecious+mens+goldearrings+specialevent+beads+piercings+dsoljewelry+gold+watch+preowned+specialized+events+diawedband, family=binomial(link="probit")) -->
+<!-- step<-stepAIC(model,direction="both") -->
+<!-- ``` -->
+
+<!-- # #detecting multicollinearity -->
+<!-- # ```{r} -->
+<!-- # install.packages("VIF") -->
+<!-- # install.packages("usdm") -->
+<!-- # library(usdm) -->
+<!-- # df=data.frame(bops,price,age_band,est_income_code,male,homeowner,kid,store2,store5998,JAN,FEB,MAR,APR,MAY,JUN,JUL,AUG,SEP,OCT,NOV,bridal,goldwedbands,solitaires,dfashion,semiprecious,mens,goldearrings,specialevent,beads,piercings,dsoljewelry,gold,watch,preowned,specialized,events,diawedband) -->
+
+<!-- # Generates the correlation matrix, store 6 is excluded becausecor(store6,store2)=0.8, cor(store2,store5998)=0.55    -->
+<!-- #The rest all less than 0.8 so its ok. -->
+<!-- cor(df)  -->
+
+<!-- vif(df) # Calculates VIF scores # all between range (1, 1.66) Less than 3, so it is ok -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- install.packages("aod") -->
+<!-- library(aod) -->
+<!-- install.packages("ggplot2") -->
+<!-- library(ggplot2) -->
+<!-- install.packages("mfx") -->
+<!-- library(mfx) -->
+<!-- model<-glm(return~bops+price+age_band+est_income_code+factor(gender)+factor(month)+factor(store_number)+factor(summary), family=binomial(link="probit")) -->
+<!-- summary(model) -->
+<!-- wald.test(b=coef(model),Sigma=vcov(model),Terms=19:20) #test the overall effect of store number, significant means the overall effect of mall is good -->
+<!-- wald.test(b=coef(model),Sigma=vcov(model),Terms=21:37)# test the overall effect of catagories, significant means the overall effect of mall is good -->
+
+<!-- with(model, null.deviance - deviance) # if it is significant, the model fits data. -->
+<!-- with(model, df.null - df.residual) -->
+<!-- with(model, pchisq(null.deviance - deviance, df.null - df.residual, lower.tail = FALSE)) #The output produced by summary(probit1) included indices of fit (shown below the coefficients), including the null and deviance residuals and the AIC. To find the difference in deviance for the two models (i.e., the test statistic) we can use the with command.The chi-square of 41.56 with 5 degrees of freedom and an associated p-value of less than 0.001 tells us that our model as a whole fits significantly better than an empty model. -->
