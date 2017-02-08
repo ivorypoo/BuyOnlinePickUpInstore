@@ -1,14 +1,98 @@
 ---
-title: "BOPS Project"
+title: "BuyOnlinePickUpStore"
 author: "Ivory Poo"
-date: "11/3/2016"
-output: word_document
+date: "2/8/2017"
+output: html_document
 ---
+
 ##Impact of BOPS on Consumer Return Behavior
 ## Set the directory
 ```{r}
 setwd("~/Desktop/BOPS Project")
+data13 = read.csv("BOPS-FY13.csv") 
+data_trans<-read.table("transaction.txt", header= TRUE, sep= ",")
+
+allbops=rbind(data12,data13)
+data_trans$bops= ifelse(data_trans$transaction_id%in% allbops$transaction_id, 1,0)
+summary(data_trans)
+
+##Subseting the data to only BOPS implementaion period
+data_df1=subset(data_trans, (month_index>=25) & (store_number==2|store_number==6))
+data_df2=subset(data_trans, (month_index>=37) & (store_number==5998))
+df_m4=rbind(data_df1,data_df2) 
+```
+
+```{r}
+##rename the net_purchase_amount as price -->
+colnames(df_m4)[colnames(df_m4)=="net_purchase_amount"] <- "price" 
+``` 
+Creating Dummies
+```{r}
+attach(df_m4)
+#Create dummy for return
+df_m4$return=ifelse(is.na(df_m4$time_to_return),0,1)
+
+#create dummy variables for ethnic code
+df_m4$white <- ifelse(df_m4$ethnic_code == "N"| df_m4$ethnic_code == "Z", 1, 0)
+
+#create dummy variables for store number -->
+df_m4$store2 <- ifelse(store_number == "2", 1, 0)
+df_m4$store6 <- ifelse(store_number == "6", 1, 0)
+df_m4$store5998 <- ifelse(store_number == "5998", 1, 0)
+
+#create dummy variables for homeowner
+df_m4$homeowner <- ifelse(homeowner_code == "O",1,ifelse(homeowner_code == "R",0,NA))
+
+#create dummy variables for male
+df_m4$male <- ifelse(gender == "M",1,ifelse(gender == "F",0,NA))
+
+#create child variables for male
+df_m4$kid <- ifelse(child == "Y",1,ifelse(child == "N",0,NA))
+
+#create dummy variables for product catagory -->
+df_m4$bridal <- ifelse(summary == "1", 1, 0)
+df_m4$goldwedbands <- ifelse(summary == "2", 1, 0)
+df_m4$solitaires <- ifelse(summary == "3", 1, 0)
+df_m4$dfashion <- ifelse(summary == "4", 1, 0)
+df_m4$semiprecious <- ifelse(summary == "5", 1, 0)
+df_m4$mens <- ifelse(summary == "6", 1, 0)
+df_m4$goldearrings <- ifelse(summary == "7", 1, 0)
+df_m4$specialevent <- ifelse(summary == "8", 1, 0)
+df_m4$beads <- ifelse(summary == "9", 1, 0)
+df_m4$piercings <- ifelse(summary == "10", 1, 0)
+df_m4$dsoljewelry <- ifelse(summary == "11", 1, 0)
+df_m4$gold <- ifelse(summary == "12", 1, 0)
+df_m4$watch <- ifelse(summary == "13", 1, 0)
+df_m4$preowned <- ifelse(summary == "14", 1, 0)
+df_m4$specialized <- ifelse(summary == "15", 1, 0)
+df_m4$events <- ifelse(summary == "17", 1, 0)
+df_m4$diawedband <- ifelse(summary == "20", 1, 0)
+df_m4$silver <- ifelse(summary == "21", 1, 0)
+
+#create dummy variables for month -->
+df_m4$JAN <- ifelse(month == "JAN", 1, 0)
+df_m4$FEB <- ifelse(month == "FEB", 1, 0)
+df_m4$MAR <- ifelse(month == "MAR", 1, 0)
+df_m4$APR <- ifelse(month == "APR", 1, 0)
+df_m4$MAY <- ifelse(month == "MAY", 1, 0)
+df_m4$JUN <- ifelse(month == "JUN", 1, 0)
+df_m4$JUL <- ifelse(month == "JUL", 1, 0)
+df_m4$AUG <- ifelse(month == "AUG", 1, 0)
+df_m4$SEP <- ifelse(month == "SEP", 1, 0) 
+df_m4$OCT <- ifelse(month == "OCT", 1, 0) 
+df_m4$NOV <- ifelse(month == "NOV", 1, 0)
+df_m4$DEC <- ifelse(month == "DEC", 1, 0) 
+
+##Create fiscal year variables and month index
+df_m4$month_index2=df_m4$month_index%%12
+df_m4$y_2011 <- ifelse(df_m4$year == "2011", 1, 0)
+df_m4$y_2012 <- ifelse(df_m4$year == "2012", 1, 0)
+df_m4$y_2013 <- ifelse(df_m4$year == "2013", 1, 0)
+df_m4$fiscalyr <- ifelse(13<= df_m4$month_index & df_m4$month_index <=24, 11, ifelse(25<= df_m4$month_index & df_m4$month_index <= 36, 12, 13))
+write.csv(df_m4, "df_m4.csv")
 df_m4 = read.csv("df_m4.csv")
+```
+
 ```
 ##Data Aggregatioin
 To investigate impact of BOPS on consumer return behavior. We will use transaction level data.
@@ -653,139 +737,11 @@ probitmfx(formula=return ~ bops + price+age_band + est_income_code + white + mal
 ```
 
 
-##Create fiscal year variables and month index
-```{r}
-df_m4$month_index2=df_m4$month_index%%12
-df_m4$y_2011 <- ifelse(df_m4$year == "2011", 1, 0)
-df_m4$y_2012 <- ifelse(df_m4$year == "2012", 1, 0)
-df_m4$y_2013 <- ifelse(df_m4$year == "2013", 1, 0)
-df_m4$fiscalyr <- ifelse(13<= df_m4$month_index & df_m4$month_index <=24, 11, ifelse(25<= df_m4$month_index & df_m4$month_index <= 36, 12, 13))
-write.csv(df_m4, "df_m4.csv")
 
-```
+##I tried to address the possible endogeneity caused by self select BOPS by treatment effect model but rho is insig, so the endogeity I suspected earlier is negligible in this model. So simple probit regession will do the work. The result shows customers who purchase with BOPS are 14% more likely return than customers who purchase without BOPS.
 
+#On a side note, Online sale represent 7% of total sale, Bops trigger brick and mortal sale. This stragety trigger sale on phsiacally sales. We do not have additional data, to show the positive side of this implementation.
 
+#Short term & long term, only run of 5998 seperately versus other store. For other two there is no sign, for 5998 there is high increase of return. DIFFERENCE BETWEEN Canada(CONTRIBUTE 10% OF TOTAL SALES) and USA.
 
-
-<!-- ## Description of the data -->
-<!-- ```{r} -->
-<!-- data12 = read.csv("BOPS-FY12.csv") -->
-<!-- data13 = read.csv("BOPS-FY13.csv") -->
-<!-- data_trans<-read.table("transaction.txt", header= TRUE, sep= ",") -->
-<!-- ``` -->
-
-<!-- ```{r} -->
-<!-- allbops=rbind(data12,data13) -->
-<!-- data_trans$bops= ifelse(data_trans$transaction_id%in% allbops$transaction_id, 1,0) -->
-<!-- #summary(data_trans) -->
-
-<!-- ##Subseting the data to only BOPS implementaion period -->
-<!-- data_df1=subset(data_trans, (month_index>=25) & (store_number==2|store_number==6)) -->
-<!-- data_df2=subset(data_trans, (month_index>=37) & (store_number==5998)) -->
-<!-- df_m4=rbind(data_df1,data_df2) -->
-<!-- ``` -->
-
-<!-- ```{r} -->
-<!-- ##rename the net_purchase_amount as price -->
-<!-- colnames(df_m4)[colnames(df_m4)=="net_purchase_amount"] <- "price" -->
-<!-- ``` -->
-<!-- Creating Dummies -->
-<!-- ```{r} -->
-<!-- attach(df_m4) -->
-<!-- #Create dummy for return -->
-<!-- df_m4$return=ifelse(is.na(df_m4$time_to_return),0,1) -->
-
-<!-- #create dummy variables for ethnic code -->
-<!-- df_m4$white <- ifelse(df_m4$ethnic_code == "N"| df_m4$ethnic_code == "Z", 1, 0) -->
-
-<!-- #create dummy variables for store number -->
-<!-- df_m4$store2 <- ifelse(store_number == "2", 1, 0) -->
-<!-- df_m4$store6 <- ifelse(store_number == "6", 1, 0) -->
-<!-- df_m4$store5998 <- ifelse(store_number == "5998", 1, 0) -->
-
-<!-- #create dummy variables for homeowner -->
-<!-- df_m4$homeowner <- ifelse(homeowner_code == "O",1,ifelse(homeowner_code == "R",0,NA)) -->
-
-<!-- #create dummy variables for male -->
-<!-- df_m4$male <- ifelse(gender == "M",1,ifelse(gender == "F",0,NA)) -->
-
-<!-- #create child variables for male -->
-<!-- df_m4$kid <- ifelse(child == "Y",1,ifelse(child == "N",0,NA)) -->
-
-<!-- #create dummy variables for product catagory -->
-<!-- df_m4$bridal <- ifelse(summary == "1", 1, 0) -->
-<!-- df_m4$goldwedbands <- ifelse(summary == "2", 1, 0) -->
-<!-- df_m4$solitaires <- ifelse(summary == "3", 1, 0) -->
-<!-- df_m4$dfashion <- ifelse(summary == "4", 1, 0) -->
-<!-- df_m4$semiprecious <- ifelse(summary == "5", 1, 0) -->
-<!-- df_m4$mens <- ifelse(summary == "6", 1, 0) -->
-<!-- df_m4$goldearrings <- ifelse(summary == "7", 1, 0) -->
-<!-- df_m4$specialevent <- ifelse(summary == "8", 1, 0) -->
-<!-- df_m4$beads <- ifelse(summary == "9", 1, 0) -->
-<!-- df_m4$piercings <- ifelse(summary == "10", 1, 0) -->
-<!-- df_m4$dsoljewelry <- ifelse(summary == "11", 1, 0) -->
-<!-- df_m4$gold <- ifelse(summary == "12", 1, 0) -->
-<!-- df_m4$watch <- ifelse(summary == "13", 1, 0) -->
-<!-- df_m4$preowned <- ifelse(summary == "14", 1, 0) -->
-<!-- df_m4$specialized <- ifelse(summary == "15", 1, 0) -->
-<!-- df_m4$events <- ifelse(summary == "17", 1, 0) -->
-<!-- df_m4$diawedband <- ifelse(summary == "20", 1, 0) -->
-<!-- df_m4$silver <- ifelse(summary == "21", 1, 0) -->
-
-<!-- #create dummy variables for month -->
-<!-- df_m4$JAN <- ifelse(month == "JAN", 1, 0) -->
-<!-- df_m4$FEB <- ifelse(month == "FEB", 1, 0) -->
-<!-- df_m4$MAR <- ifelse(month == "MAR", 1, 0) -->
-<!-- df_m4$APR <- ifelse(month == "APR", 1, 0) -->
-<!-- df_m4$MAY <- ifelse(month == "MAY", 1, 0) -->
-<!-- df_m4$JUN <- ifelse(month == "JUN", 1, 0) -->
-<!-- df_m4$JUL <- ifelse(month == "JUL", 1, 0) -->
-<!-- df_m4$AUG <- ifelse(month == "AUG", 1, 0) -->
-<!-- df_m4$SEP <- ifelse(month == "SEP", 1, 0) -->
-<!-- df_m4$OCT <- ifelse(month == "OCT", 1, 0) -->
-<!-- df_m4$NOV <- ifelse(month == "NOV", 1, 0) -->
-<!-- df_m4$DEC <- ifelse(month == "DEC", 1, 0) -->
-<!-- ``` -->
-<!-- Output dataset -->
-<!-- ```{r} -->
-<!-- write.csv(df_m4, "model4.csv") -->
-<!-- ``` -->
-
-
-<!-- #stepwise  -->
-<!-- ```{r} -->
-<!-- install.packages("MASS") -->
-<!-- library("MASS") -->
-<!-- model<-glm(return~bops+price+age_band+est_income_code+male+homeowner+kid+store2+store5998+JAN+FEB+MAR+APR+MAY+JUN+JUL+AUG+SEP+OCT+NOV+bridal+goldwedbands+solitaires+dfashion+semiprecious+mens+goldearrings+specialevent+beads+piercings+dsoljewelry+gold+watch+preowned+specialized+events+diawedband, family=binomial(link="probit")) -->
-<!-- step<-stepAIC(model,direction="both") -->
-<!-- ``` -->
-
-<!-- # #detecting multicollinearity -->
-<!-- # ```{r} -->
-<!-- # install.packages("VIF") -->
-<!-- # install.packages("usdm") -->
-<!-- # library(usdm) -->
-<!-- # df=data.frame(bops,price,age_band,est_income_code,male,homeowner,kid,store2,store5998,JAN,FEB,MAR,APR,MAY,JUN,JUL,AUG,SEP,OCT,NOV,bridal,goldwedbands,solitaires,dfashion,semiprecious,mens,goldearrings,specialevent,beads,piercings,dsoljewelry,gold,watch,preowned,specialized,events,diawedband) -->
-
-<!-- # Generates the correlation matrix, store 6 is excluded becausecor(store6,store2)=0.8, cor(store2,store5998)=0.55    -->
-<!-- #The rest all less than 0.8 so its ok. -->
-<!-- cor(df)  -->
-
-<!-- vif(df) # Calculates VIF scores # all between range (1, 1.66) Less than 3, so it is ok -->
-<!-- ``` -->
-
-<!-- ```{r} -->
-<!-- install.packages("aod") -->
-<!-- library(aod) -->
-<!-- install.packages("ggplot2") -->
-<!-- library(ggplot2) -->
-<!-- install.packages("mfx") -->
-<!-- library(mfx) -->
-<!-- model<-glm(return~bops+price+age_band+est_income_code+factor(gender)+factor(month)+factor(store_number)+factor(summary), family=binomial(link="probit")) -->
-<!-- summary(model) -->
-<!-- wald.test(b=coef(model),Sigma=vcov(model),Terms=19:20) #test the overall effect of store number, significant means the overall effect of mall is good -->
-<!-- wald.test(b=coef(model),Sigma=vcov(model),Terms=21:37)# test the overall effect of catagories, significant means the overall effect of mall is good -->
-
-<!-- with(model, null.deviance - deviance) # if it is significant, the model fits data. -->
-<!-- with(model, df.null - df.residual) -->
-<!-- with(model, pchisq(null.deviance - deviance, df.null - df.residual, lower.tail = FALSE)) #The output produced by summary(probit1) included indices of fit (shown below the coefficients), including the null and deviance residuals and the AIC. To find the difference in deviance for the two models (i.e., the test statistic) we can use the with command.The chi-square of 41.56 with 5 degrees of freedom and an associated p-value of less than 0.001 tells us that our model as a whole fits significantly better than an empty model. -->
+##Heteroskedasticity test on simple probit model
