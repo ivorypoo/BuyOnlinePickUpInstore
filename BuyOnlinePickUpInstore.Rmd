@@ -669,9 +669,6 @@ probitmfx(formula=return ~ bops + price+age_band + est_income_code + white + mal
 aggregate(df_m4$return~df_m4$bops, FUN=mean)
 
 ```
-##Basically, what I need to explain is I tried to address the endo model and rho is insig, so I can conclude that the treatment model doesn't has been impact on the model. So simple probit regession will do the work. Ratio of pick up in store in 2012 and 2013. If I run in on only 2012 data, I will see similar result like Selina, no impact on return. 2013 is included to capture longer term effect of bops. Look at 5998 seperately, 2 and 6 are in the USA. Online sale represent 7% of total sale, Bops trigger brick and mortal sale. This stragety trigger sale on phsiacally sales. We do not have additional data, to show the positive side of this implementation.
-
-#Short term & long term, only run of 5998 seperately versus other store. For other two there is no sign, for 5998 there is high increase of return. DIFFERENCE BETWEEN Canada(CONTRIBUTE 10% OF TOTAL SALES) and USA.
 
 ##Heteroskedasticity test on simple probit model
 ```{r}
@@ -736,12 +733,9 @@ probit_store2013_26<-glm(return ~ bops + price+age_band + est_income_code + whit
 probitmfx(formula=return ~ bops + price+age_band + est_income_code + white + male + factor(month_index2)  + factor(year), data=df_2013_26,robust=TRUE)
 ```
 
-
-
 ##I tried to address the possible endogeneity caused by self select BOPS by treatment effect model but rho is insig, so the endogeity I suspected earlier is negligible in this model. So simple probit regession will do the work. The result shows customers who purchase with BOPS are 14% more likely return than customers who purchase without BOPS.
 
-#On a side note, Online sale represent 7% of total sale, Bops trigger brick and mortal sale. This stragety trigger sale on phsiacally sales. We do not have additional data, to show the positive side of this implementation.
+##On a side note, Online sale represent 7% of total sale, Bops trigger brick and mortal sale. This stragety trigger sale on phsiacally sales. We do not have additional data, to show the positive side of this implementation.
 
-#Short term & long term, only run of 5998 seperately versus other store. For other two there is no sign, for 5998 there is high increase of return. DIFFERENCE BETWEEN Canada(CONTRIBUTE 10% OF TOTAL SALES) and USA.
+##Short term & long term, only run of 5998 seperately versus other store. For other two there is no sign, for 5998 there is high increase of return. DIFFERENCE BETWEEN Canada(CONTRIBUTE 10% OF TOTAL SALES) and USA.
 
-##Heteroskedasticity test on simple probit model
